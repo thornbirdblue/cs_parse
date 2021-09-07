@@ -23,7 +23,6 @@
 #
 ###########################################################################
 
-#!/bin/python
 import sys,os,re,string,time,datetime,xlwt
 
 # save log record			!!! Save all log data !!!
@@ -47,26 +46,116 @@ class AppLogType:
 
 	# camera open start end end log
 	# camera startPreview start and end log		!!! must a pair set
-	CamLog = ('Metadata array','Vendor Tags')
-	CamLogPattern = (r'Dumping camera metadata array:','android\.\S+')
-
+	CamLog = ('ids','device','hal_device','meta_array','meta','vendor_tags')
+	
 	logNames=[]
 	
 	logCnt = 0
 	__path = ''
 	__dir = ''
 	__file = ''
-	__record = []			### !!! 8 pair time record must to more than len(CamLog)!!!
-	__CamLogList = []								### log time's array
 
-	def __init__(self,path,dir,file):
-		self.__path = path
-		self.__dir = dir
-		self.__file = file
-		AppLogType.logCnt+=1
-		self.__record = []
-		self.__CamLogList  = []
+	__numCam = 0
+	__ids=[]
+	__infos={}
+
+	__tagLogs={'ids':'Number of camera devices: (\d+)','device':'== Camera device (\d+)','hal_device':'== Camera HAL device device@\d\.\d/legacy/(\d)','meta_array':'Dumping camera metadata array: \d+ / (\d+) entries, \d+ / (\d+) bytes of extra data.','meta':'(\w+\.\S+) \(\d+\):','vendor_tags':'== Vendor tags: =='}
+
+	__stat= 0
+	__curId= -1
 	
+	__metaEntries = 0
+	__metaExtra = 0
+	__dynMeta=[]
+	__staMeta=[]
+	__idsDyn={}
+	__idsSta={}
+
+	def __init__(self,path,d,f):
+		self.__path = path
+		self.__dir = d
+		self.__file = f
+		AppLogType.logCnt+=1
+
+	def __resetMeta(self):
+		if self.__stat == 1:
+			self.__dynMeta.clear()
+		elif self.__stat == 2:
+			self.__staMeta.clear()
+
+	def __saveData(self):
+		data = []
+		
+		if self.__stat == 1:
+			data = self.__dynMeta
+			if data:
+				self.__idsDyn[self.__curId] = self.__dynMeta.copy()
+		elif self.__stat == 2:
+			data = self.__staMeta
+			if data:
+				self.__idsSta[self.__curId] = self.__staMeta.copy()
+		
+		if debugLog >= debugLogLevel[1] and data:
+			print( 'INFO Save id %s Data: '%str(self.__curId))
+			print( data)
+
+		self.__resetMeta()
+	
+	def __saveMetaNum(self,entries,extra):
+		if self.__stat == 1:
+			self.__dynMeta.append(entries)
+			self.__dynMeta.append(extra)
+		elif self.__stat == 2:
+			self.__staMeta.append(entries)
+			self.__staMeta.append(extra)
+	
+	def __saveMeta(self,stat,tag):
+		if self.__stat == 1:
+			self.__dynMeta.append(tag)
+		elif self.__stat == 2:
+			self.__staMeta.append(tag)
+		
+		if debugLog >= debugLogLevel[2]:
+			print( 'INFO Save Meta: '+str(tag))
+
+	def __saveInfo(self,tag,search):
+		if tag == AppLogType.CamLog[0]:
+			self.__numCam = search.group(1)
+
+			if debugLog >= debugLogLevel[1]:
+				print( 'INFO Cam nums: '+str(self.__numCam))
+		elif tag == AppLogType.CamLog[1]:
+			self.__stat = 1
+
+			if self.__curId != -1:
+				self.__saveData()
+
+			self.__curId = search.group(1)
+
+			self.__ids.append(self.__curId)					# Save cam ids!!!	
+
+			if debugLog >= debugLogLevel[2]:
+				print( 'INFO Cur Id: '+str(self.__curId))
+
+		elif tag == AppLogType.CamLog[2]:
+			if self.__curId != -1:
+				self.__saveData()
+			
+			self.__stat = 2
+			self.__curId = search.group(1)
+			
+			if debugLog >= debugLogLevel[2]:
+				print( 'INFO Cur Id: '+str(self.__curId))
+
+		elif tag == AppLogType.CamLog[3]:
+			if debugLog >= debugLogLevel[2]:
+				print( 'INFO metadata array: '+search.group())
+			
+			self.__saveMetaNum(search.group(1),search.group(2))
+		elif tag == AppLogType.CamLog[4]:
+			self.__saveMeta(self.__stat,search.group(1))
+
+
 
 	def __ScanCamLog(self,fd):
 		if debugLog >= debugLogLevel[2]:
@@ -76,11 +165,13 @@ class AppLogType:
 			line = fd.readline()
 			
 			if not line:
-				if debugLog >= debugLogLevel[2]:
+				self.__saveData()
+				if debugLog >= debugLogLevel[1]:
 					print( 'INFO: Finish Parse file!\n')
 				break;
 
 			line = str(line)
+
 			if debugLog >= debugLogLevel[-1]:
 				print( 'INFO: Read line is :',line)
 	
@@ -88,43 +179,26 @@ class AppLogType:
 				if debugLog >= debugLogLevel[-1]:
 					print( 'INFO: Camera log-> '+AppLogType.CamLog[i])
 
-				log = re.compile(AppLogType.CamLogPattern[i])
+				log = re.compile(self.__tagLogs[AppLogType.CamLog[i]])
 		
 				if debugLog >= debugLogLevel[-1]:
 					print( 'INFO: Scan log-> '+log.pattern)
-				
+
 				search = re.search(log,line)
 				if search:
+					if AppLogType.CamLog[i] == AppLogType.CamLog[-1]:
+						self.__saveData()
+						print( 'INFO Finish Scan: '+line)
+						break;
+
 					if debugLog >= debugLogLevel[2]:
-						print( 'INFO: Search Camera log->'+search.group())
+						print( 'INFO: Search: '+search.group())
 					
-					if debugLog >= debugLogLevel[1]:
+					if debugLog >= debugLogLevel[-1]:
 						print( 'Find line is: '+line)
-
-					if 0 == i:	
-						Format = re.compile('(\d+) \/ \d+ entries')
-					else:
-						Format = re.compile('android\.\S+\.\S+' )
-
-					
-					if debugLog >= debugLogLevel[2]:
-						print( 'INFO: Format-> '+Format.pattern)
-					
-					f = re.search(Format,line)
-					if f:
-						if debugLog >= debugLogLevel[1]:
-							print( 'INFO: Find key time-> '+f.group())
-
-						# patch-> cal tag position and write to the right pos
-
-						self.__record.append(f.group())
-
-						
-						if debugLog >= debugLogLevel[2]:
-							print( 'INFO: Save -> '+self.__record[i])
-
-		self.__CamLogList.append(self.__record)
-
+				
+					self.__saveInfo(AppLogType.CamLog[i],search)	
+	
 	def ScanCameraLog(self):
 		if debugLog >= debugLogLevel[1]:
 			print( 'Parse file: '+os.path.join(self.__path,self.__file))
@@ -145,11 +219,23 @@ class AppLogType:
 	def GetName(self):
 		return self.__file
 
-	def GetCamLogList(self):
-		if debugLog >= debugLogLevel[2]:
-			print( 'Cam Log list len: '+str(len(self.__CamLogList)))
+	def GetIds(self):
+		if debugLog >= debugLogLevel[1]:
+			print('Ids: ',self.__ids)
+		return self.__ids
 
-		return self.__CamLogList
+
+	def GetCamLogList(self,id = '0'):
+		data = []
+		if id in self.__idsDyn:
+			data.append(self.__idsDyn[id])
+		if id in self.__idsSta:
+			data.append(self.__idsSta[id])
+	
+		if debugLog >= debugLogLevel[1] and data:
+			print(data)
+
+		return data	
 		
 
 def runScan(dirname,name,f):
@@ -178,6 +264,25 @@ def ScanFiles(arg,dirname,files):
 			
 			runScan(dirname,name,file)
 
+def SheetSave(mlog,xl,id):
+	log = mlog.GetCamLogList(id)
+
+	if log:
+		sheet = xl.add_sheet(id)
+
+
+	for i in range(0,len(log)):
+		data = log[i]
+
+		if debugLog >= debugLogLevel[2]:
+			print( 'Group '+str(i+1)+' data len: '+str(len(data)))
+
+		for j in range(0,len(data)):
+			if debugLog >= debugLogLevel[2]:
+				print( data[j])
+			
+			sheet.write(j,i+1,data[j])
+
 def OutPutData(xl,mlog,index):
 	LogName = mlog.GetName()
 	if debugLog >= debugLogLevel[2]:
@@ -204,26 +309,13 @@ def OutPutData(xl,mlog,index):
 			print( "\nSave sheet: "+mlog.GetName())
 
 	# sheet save	
-	for i in range(0,len(AppLogType.CamLog)):
-		sheet.col(i+1).width=file_col_width
-		sheet.write(0,i+1,AppLogType.CamLog[i])
+	#sheet.col(i+1).width=file_col_width
 
 	
-	log = mlog.GetCamLogList()
+	ids = mlog.GetIds()
 
-	for i in range(0,len(log)):
-		sheet.write(i+1,0,i+1)
-
-		data = log[i]
-
-		if debugLog >= debugLogLevel[2]:
-			print( 'Group '+str(i+1)+' data len: '+str(len(data)))
-
-		for j in range(0,len(data)):
-			if debugLog >= debugLogLevel[2]:
-				print( data[j])
-			
-			sheet.write(i+1,j+1,data[j])
+	for i in ids:
+		SheetSave(mlog,xl,i)	
 		
 def SaveLog():
 	xlwb = xlwt.Workbook(encoding='utf-8')
