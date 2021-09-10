@@ -283,7 +283,7 @@ def SheetSaveVendorTags(mlog,xl):
 		sheet = xl.add_sheet('VendorTags')
 
 
-	for i in log:
+	for i in range(0,len(log)):
 		data = log[i]
 
 		if debugLog >= debugLogLevel[2]:
