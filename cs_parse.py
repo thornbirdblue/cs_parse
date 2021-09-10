@@ -37,7 +37,6 @@ ScanFile=''
 # save file name
 fileName=''
 ScanPath=''
-SumTags=['FileName','Type']
 file_col_width = 4500				# col width
 
 class AppLogType:
@@ -46,7 +45,7 @@ class AppLogType:
 
 	# camera open start end end log
 	# camera startPreview start and end log		!!! must a pair set
-	CamLog = ('ids','device','hal_device','meta_array','meta','vendor_tags')
+	CamLog = ('ids','device','hal_device','meta_array','meta','vendor_tags','error_traces')
 	
 	logNames=[]
 	
@@ -59,7 +58,7 @@ class AppLogType:
 	__ids=[]
 	__infos={}
 
-	__tagLogs={'ids':'Number of camera devices: (\d+)','device':'== Camera device (\d+)','hal_device':'== Camera HAL device device@\d\.\d/legacy/(\d)','meta_array':'Dumping camera metadata array: \d+ / (\d+) entries, \d+ / (\d+) bytes of extra data.','meta':'(\w+\.\S+) \(\d+\):','vendor_tags':'== Vendor tags: =='}
+	__tagLogs={'ids':'Number of camera devices: (\d+)','device':'== Camera device (\d+)','hal_device':'== Camera HAL device device@\d\.\d/legacy/(\d)','meta_array':'Dumping camera metadata array: \d+ / (\d+) entries, \d+ / (\d+) bytes of extra data.','meta':'(\w+\.\S+) \(\d+\):','vendor_tags':'0x\d+ \((\S+)\) with','error_traces':'== Camera error traces'}
 
 	__stat= 0
 	__curId= -1
@@ -70,6 +69,7 @@ class AppLogType:
 	__staMeta=[]
 	__idsDyn={}
 	__idsSta={}
+	__vendorTags=[]
 
 	def __init__(self,path,d,f):
 		self.__path = path
@@ -117,6 +117,12 @@ class AppLogType:
 		
 		if debugLog >= debugLogLevel[2]:
 			print( 'INFO Save Meta: '+str(tag))
+	
+	def __saveVendorTags(self,tag):
+		self.__vendorTags.append(tag)
+
+		if debugLog >= debugLogLevel[2]:
+			print( 'INFO Save Vendor Tag: '+str(tag))
 
 	def __saveInfo(self,tag,search):
 		if tag == AppLogType.CamLog[0]:
@@ -154,6 +160,8 @@ class AppLogType:
 			self.__saveMetaNum(search.group(1),search.group(2))
 		elif tag == AppLogType.CamLog[4]:
 			self.__saveMeta(self.__stat,search.group(1))
+		elif tag == AppLogType.CamLog[5]:
+			self.__saveVendorTags(search.group(1))
 
 
 
@@ -224,6 +232,10 @@ class AppLogType:
 			print('Ids: ',self.__ids)
 		return self.__ids
 
+	def GetVendorTags(self):
+		if debugLog >= debugLogLevel[1]:
+			print('Ids: ',self.__vendorTags)
+		return self.__vendorTags
 
 	def GetCamLogList(self,id = '0'):
 		data = []
@@ -263,6 +275,21 @@ def ScanFiles(arg,dirname,files):
 				print( '\nFound Dir: '+name)
 			
 			runScan(dirname,name,file)
+
+def SheetSaveVendorTags(mlog,xl):
+	log = mlog.GetVendorTags()
+
+	if log:
+		sheet = xl.add_sheet('VendorTags')
+
+
+	for i in log:
+		data = log[i]
+
+		if debugLog >= debugLogLevel[2]:
+			print( ' Data: '+str(data))
+
+		sheet.write(i,0,data)
 
 def SheetSave(mlog,xl,id):
 	log = mlog.GetCamLogList(id)
@@ -315,7 +342,9 @@ def OutPutData(xl,mlog,index):
 	ids = mlog.GetIds()
 
 	for i in ids:
-		SheetSave(mlog,xl,i)	
+		SheetSave(mlog,xl,i)
+	
+	SheetSaveVendorTags(mlog,xl)
 		
 def SaveLog():
 	xlwb = xlwt.Workbook(encoding='utf-8')
